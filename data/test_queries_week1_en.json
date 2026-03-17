@@ -1,0 +1,52 @@
+[
+  {
+    "id": "en_case_01",
+    "query": "Take me to the airport.",
+    "category": "single_destination"
+  },
+  {
+    "id": "en_case_02",
+    "query": "I want to go to Central Park, but let's grab coffee at Starbucks first.",
+    "category": "hybrid_sequence"
+  },
+  {
+    "id": "en_case_03",
+    "query": "Find the nearest charging station.",
+    "category": "charging"
+  },
+  {
+    "id": "en_case_04",
+    "query": "Navigate to the office and find a McDonald's on the way.",
+    "category": "destination_and_restaurant"
+  },
+  {
+    "id": "en_case_05",
+    "query": "Is there a clean restroom nearby?",
+    "category": "fuzzy_constraint"
+  },
+  {
+    "id": "en_case_06",
+    "query": "Set destination to JFK airport.",
+    "category": "single_destination"
+  },
+  {
+    "id": "en_case_07",
+    "query": "I need to charge my car before heading to the mall.",
+    "category": "charging_and_destination"
+  },
+  {
+    "id": "en_case_08",
+    "query": "Find a highly rated Italian restaurant around here.",
+    "category": "fuzzy_constraint"
+  },
+  {
+    "id": "en_case_09",
+    "query": "Go to Times Square, then find a parking lot.",
+    "category": "destination_and_parking"
+  },
+  {
+    "id": "en_case_10",
+    "query": "Drive me home, but I need to stop by KFC to pick up some food.",
+    "category": "destination_and_restaurant"
+  }
+]

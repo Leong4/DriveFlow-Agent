@@ -1,0 +1,52 @@
+[
+  {
+    "id": "case_01",
+    "query": "导航去白云山",
+    "category": "single_destination"
+  },
+  {
+    "id": "case_02",
+    "query": "找附近的麦当劳",
+    "category": "single_destination"
+  },
+  {
+    "id": "case_03",
+    "query": "先去白云山，再去天河城吃饭",
+    "category": "hybrid_sequence"
+  },
+  {
+    "id": "case_04",
+    "query": "我想去深圳湾公园，路上找个小鹏超充站",
+    "category": "destination_and_charging"
+  },
+  {
+    "id": "case_05",
+    "query": "有没有近一点的洗手间",
+    "category": "fuzzy_constraint"
+  },
+  {
+    "id": "case_06",
+    "query": "直接导去广州塔",
+    "category": "single_destination"
+  },
+  {
+    "id": "case_07",
+    "query": "去一趟珠江新城，然后找个带得来速的肯德基",
+    "category": "hybrid_sequence_with_constraint"
+  },
+  {
+    "id": "case_08",
+    "query": "我没电了，找充电桩",
+    "category": "charging"
+  },
+  {
+    "id": "case_09",
+    "query": "去公司，顺便买杯瑞幸咖啡",
+    "category": "destination_and_restaurant"
+  },
+  {
+    "id": "case_10",
+    "query": "找一个评分高的东北菜馆",
+    "category": "fuzzy_constraint"
+  }
+]
