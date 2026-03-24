@@ -3,11 +3,6 @@ import asyncio
 import httpx
 from pathlib import Path
 
-import json
-import asyncio
-import httpx
-from pathlib import Path
-
 async def run_suite(client, data_file, title):
     if not data_file.exists():
         print(f"Test data file not found: {data_file}")
