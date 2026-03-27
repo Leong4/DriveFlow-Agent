@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveFlow Agent UI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="container">
+    <!-- Left Panel: Controls & Status -->
+    <div class="panel-left">
+        <h1>DriveFlow Agent</h1>
+
+        <div class="control-group">
+            <label for="queryInput">Voice/Text Query</label>
+            <input type="text" id="queryInput" placeholder="e.g. Take me to Nottingham Station, but stop by a McDonald's on the way.">
+            
+            <label for="originInput">Origin</label>
+            <input type="text" id="originInput" placeholder="Default: University of Nottingham" value="University of Nottingham">
+            
+            <div class="car-state-inputs">
+                <div>
+                    <label for="batteryInput">Battery (%)</label>
+                    <input type="number" id="batteryInput" placeholder="100">
+                </div>
+                <div>
+                    <label for="rangeInput">Range (km)</label>
+                    <input type="number" id="rangeInput" placeholder="500">
+                </div>
+            </div>
+
+            <div class="button-row">
+                <button id="runBtn" class="primary-btn">Run Agent</button>
+            </div>
+            
+            <div class="presets">
+                <p>Presets:</p>
+                <button onclick="applyPreset('Take me to Nottingham Station, but stop by a McDonald\'s on the way.', 100, 500)">Restaurant + Destination</button>
+                <button onclick="applyPreset('I need to go to East Midlands Airport, but my battery is low.', 18, 20)">Low Battery + Airport</button>
+            </div>
+        </div>
+
+        <hr>
+
+        <!-- Status Area -->
+        <div class="status-container">
+            <h3>Agent State</h3>
+            <div id="loader" class="hidden">Running... Please wait.</div>
+            <div id="errorBanner" class="hidden error-banner"></div>
+            
+            <div class="status-box">
+                <strong>Status:</strong> <span id="lblStatus">-</span>
+            </div>
+            
+            <div class="status-box hidden" id="boxClarification">
+                <strong>Clarification:</strong> <span id="lblClarification" class="warning"></span>
+            </div>
+            
+            <div class="status-box hidden" id="boxGuardrail">
+                <strong>Guardrail:</strong> <span id="lblGuardrail" class="error"></span>
+            </div>
+
+            <details>
+                <summary>Parsed Tasks</summary>
+                <pre id="preParsed">-</pre>
+            </details>
+            <details>
+                <summary>Task Graph</summary>
+                <pre id="preGraph">-</pre>
+            </details>
+            <details>
+                <summary>State Snapshot</summary>
+                <pre id="preState">-</pre>
+            </details>
+            <details>
+                <summary>Latest Tool Result</summary>
+                <pre id="preTool">-</pre>
+            </details>
+        </div>
+    </div>
+
+    <!-- Right Panel: Map -->
+    <div class="panel-right">
+        <div id="map"></div>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -35,3 +35,8 @@ class StateManager:
         if not remaining:
             updates["status"] = "completed"
         return state.model_copy(update=updates)
+
+    def mark_clarification_needed(self, state: ExecutionState) -> ExecutionState:
+        """Flag that the system is waiting for user clarification before proceeding."""
+        return state.model_copy(update={"clarification_needed": True})
+
