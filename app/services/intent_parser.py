@@ -13,64 +13,135 @@ Your job is to convert complex navigation requests into a structured JSON list o
 Rules:
 1. ONLY output valid JSON. Do not write markdown blocks like ```json.
 2. Do not write any explanations.
-3. Supported task types: "restaurant", "destination", "charging_station". 
-   - Fuzzy English requests (e.g. "highly rated Italian place") map to "restaurant". Put "Italian", "highly rated" into `constraints`.
-4. Map sequence words ("first", "then", "before", "on the way") or Chinese equivalents to `order_hint` correctly.
-5. IF the request is for an unsupported intent (e.g., restroom, parking lot, gas station):
-   - DO NOT invent new task types. 
-   - Exclude the unsupported task from the `tasks` list.
+3. Supported task types:
+   - "stop"            — any intermediate POI (coffee shop, restaurant, store, pharmacy, etc.)
+                         Put all place semantics in `payload`: label, query, brand, category_hint, original_text.
+                         Set name=null, brand=null, constraints=null at the top level.
+   - "destination"     — the final destination. Put the place name in `name`.
+   - "charging_station"— an EV charging stop. Payload and brand are optional.
+   - "restaurant"      — legacy alias for "stop"; still accepted but prefer "stop" for new outputs.
+4. For multi-stop queries, emit one task per stop in route order. Each gets a sequential order_hint.
+5. Map sequence words ("first", "then", "before", "on the way", "stop by", "and then") or Chinese
+   equivalents to correct order_hint values.
+6. The final destination always gets the highest order_hint.
+7. IF the request includes an unsupported intent (restroom, parking, gas station):
+   - Exclude the unsupported task from `tasks`.
    - Set `parse_status` to "partial_success".
-   - Include `{{"unsupported_intent": true, "notes": "restroom/parking is not supported in current version"}}` in `meta`.
-6. Output format must perfectly match this structure:
+   - Add `{{"unsupported_intent": true, "notes": "..."}}` to `meta`.
+8. Output format must perfectly match this structure:
 
-Example Input 1:
-I want to go to the airport, but stop by a Starbucks on the way.
+Example Input 1 (single stop):
+I want to go to East Midlands Airport, but stop by a Starbucks on the way.
 
 Example Output 1:
 {{
-  "raw_query": "I want to go to the airport, but stop by a Starbucks on the way.",
+  "raw_query": "I want to go to East Midlands Airport, but stop by a Starbucks on the way.",
   "tasks": [
     {{
       "id": "task_1",
-      "type": "restaurant",
+      "type": "stop",
       "name": null,
-      "brand": "Starbucks",
+      "brand": null,
       "constraints": null,
-      "order_hint": 1
+      "order_hint": 1,
+      "payload": {{
+        "label": "Starbucks",
+        "query": "Starbucks",
+        "brand": "Starbucks",
+        "category_hint": "cafe",
+        "original_text": "Starbucks"
+      }}
     }},
     {{
       "id": "task_2",
       "type": "destination",
-      "name": "airport",
+      "name": "East Midlands Airport",
       "brand": null,
       "constraints": null,
-      "order_hint": 2
+      "order_hint": 2,
+      "payload": null
     }}
   ],
-  "meta": {{
-    "parser_version": "v1.1"
-  }},
+  "meta": {{"parser_version": "v1.2"}},
   "parse_status": "success"
 }}
 
-Example Input 2 (Unsupported & Fuzzy):
-Find a clean restroom before heading to a highly rated Italian restaurant.
+Example Input 2 (multi-stop):
+Take me to East Midlands Airport, but stop by a Starbucks and a Tesco on the way.
 
 Example Output 2:
+{{
+  "raw_query": "Take me to East Midlands Airport, but stop by a Starbucks and a Tesco on the way.",
+  "tasks": [
+    {{
+      "id": "task_1",
+      "type": "stop",
+      "name": null,
+      "brand": null,
+      "constraints": null,
+      "order_hint": 1,
+      "payload": {{
+        "label": "Starbucks",
+        "query": "Starbucks",
+        "brand": "Starbucks",
+        "category_hint": "cafe",
+        "original_text": "Starbucks"
+      }}
+    }},
+    {{
+      "id": "task_2",
+      "type": "stop",
+      "name": null,
+      "brand": null,
+      "constraints": null,
+      "order_hint": 2,
+      "payload": {{
+        "label": "Tesco",
+        "query": "Tesco supermarket",
+        "brand": "Tesco",
+        "category_hint": "supermarket",
+        "original_text": "Tesco"
+      }}
+    }},
+    {{
+      "id": "task_3",
+      "type": "destination",
+      "name": "East Midlands Airport",
+      "brand": null,
+      "constraints": null,
+      "order_hint": 3,
+      "payload": null
+    }}
+  ],
+  "meta": {{"parser_version": "v1.2"}},
+  "parse_status": "success"
+}}
+
+Example Input 3 (Unsupported intent):
+Find a clean restroom before heading to a highly rated Italian restaurant.
+
+Example Output 3:
 {{
   "raw_query": "Find a clean restroom before heading to a highly rated Italian restaurant.",
   "tasks": [
     {{
       "id": "task_1",
-      "type": "restaurant",
+      "type": "stop",
       "name": null,
       "brand": null,
-      "constraints": {{"quality": "highly rated", "cuisine": "Italian"}},
-      "order_hint": 2
+      "constraints": null,
+      "order_hint": 1,
+      "payload": {{
+        "label": "Italian restaurant",
+        "query": "highly rated Italian restaurant",
+        "brand": null,
+        "category_hint": "restaurant",
+        "original_text": "highly rated Italian restaurant"
+      }}
     }}
   ],
   "meta": {{
-    "parser_version": "v1.1",
+    "parser_version": "v1.2",
     "unsupported_intent": true,
     "notes": "restroom is not supported in current version"
   }},
@@ -122,7 +193,7 @@ async def parse_intent(query: str) -> IntentParseResult:
         result = IntentParseResult.model_validate(parsed_data)
         
         # Post-processing: strict filter for supported task types
-        supported_types = {"restaurant", "destination", "charging_station"}
+        supported_types = {"stop", "restaurant", "destination", "charging_station"}
         valid_tasks = []
         for t in result.tasks:
             if t.type in supported_types:

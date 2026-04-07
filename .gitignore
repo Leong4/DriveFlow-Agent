@@ -13,3 +13,5 @@ venv/
 .env
 .venv
 *.log
+Constraints for Claude Code.md
+.gitignore

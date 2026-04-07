@@ -37,6 +37,9 @@ class TaskGraphBuilder:
             payload["brand"] = task.brand
         if task.constraints:
             payload["constraints"] = task.constraints
+        # Merge rich payload for 'stop' tasks (and any future types using payload)
+        if task.payload:
+            payload.update(task.payload)
         return TaskNode(
             task_id=task.id,
             task_type=task.type,

@@ -23,10 +23,11 @@ _API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
 _PLACES_BASE = os.getenv("GOOGLE_PLACES_BASE_URL", "https://places.googleapis.com")
 
 # Supported task types for POI search
-_SUPPORTED_TYPES = {"restaurant", "charging_station", "destination"}
+_SUPPORTED_TYPES = {"stop", "restaurant", "charging_station", "destination"}
 
 # Default search text per task_type (fallback when no brand/name provided)
 _DEFAULT_SEARCH_TEXT = {
+    "stop": "point of interest",
     "restaurant": "restaurant",
     "charging_station": "EV charging station",
     "destination": "destination",
@@ -37,6 +38,15 @@ def _build_search_text(task_type: str, payload: dict) -> str:
     """Derive the search query from payload fields, falling back to defaults."""
     brand = payload.get("brand")
     name = payload.get("name")
+
+    if task_type == "stop":
+        # Prefer explicit query, then brand, then label, then default
+        return (
+            payload.get("query")
+            or payload.get("brand")
+            or payload.get("label")
+            or _DEFAULT_SEARCH_TEXT["stop"]
+        )
 
     if task_type == "restaurant":
         return brand if brand else _DEFAULT_SEARCH_TEXT["restaurant"]

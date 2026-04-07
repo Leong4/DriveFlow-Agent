@@ -16,7 +16,8 @@ class ToolRouter:
         self._route_plan = RoutePlanTool()
 
         self._route_map: dict[str, BaseTool] = {
-            "restaurant": self._poi_search,
+            "stop": self._poi_search,
+            "restaurant": self._poi_search,       # legacy alias
             "charging_station": self._poi_search,
             "destination": self._route_plan,
         }
