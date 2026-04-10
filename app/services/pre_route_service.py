@@ -302,10 +302,11 @@ def _build_blocking_response_payload(
             )
 
     # Geocode already-resolved stops so they stay visible on the map during
-    # blocking states (e.g. Castle should not vanish when Starbucks selection appears).
-    # Skips: the pending candidate task, destination tasks, and charging_station tasks.
+    # blocking states.  Runs for both candidate_selection_needed AND clarification_needed
+    # so that stops already on the route don't vanish when a new category query is added.
+    # Skips: the pending candidate/clarification task, destination tasks, charging_station.
     resolved_map_stops: List[Dict[str, Any]] = []
-    if pre_decision.status == "candidate_selection_needed":
+    if pre_decision.status in ("candidate_selection_needed", "clarification_needed"):
         _stop_types = {"stop", "restaurant"}
         for td in task_dicts:
             if td.get("id") == pre_decision.trigger_task_id:
@@ -538,9 +539,10 @@ async def run_pre_route_stage(
     # Derives the internal processing mode from the route_action rather than
     # directly from semantic_intent.mode, making the dispatch explicitly named.
     mode = (
-        "candidate_resolve" if route_action.action_type == ActionType.RESOLVE_CANDIDATE
-        else "edit" if route_action.action_type == ActionType.REPLACE_STOP
-        else "broad_need" if route_action.action_type == ActionType.CLARIFY_MISSING_SLOT
+        "candidate_resolve"  if route_action.action_type == ActionType.RESOLVE_CANDIDATE
+        else "edit"          if route_action.action_type == ActionType.REPLACE_STOP
+        else "broad_need"    if route_action.action_type == ActionType.CLARIFY_MISSING_SLOT
+        else "search_category" if route_action.action_type == ActionType.SEARCH_POI_CATEGORY
         else "parse"   # SET_DESTINATION, APPEND_STOP, UNKNOWN — parser resolves details
     )
     print(f"[demo] mode={mode!r} | action={route_action.action_type!r} | query={query!r}")
@@ -591,6 +593,49 @@ async def run_pre_route_stage(
 
     elif mode == "broad_need":
         task_dicts = [_make_semantic_stop_task(semantic_intent.category or "point of interest")]
+
+    elif mode == "search_category":
+        # B2: vocabulary-normalised category query (e.g. "I need a pharmacy" → "pharmacy").
+        # The category is already extracted and canonical; no parser call needed.
+        category = route_action.category or route_action.stop_query or "point of interest"
+        new_task_dict = _make_semantic_stop_task(category)
+
+        # Route context is a first-class signal: if an active itinerary exists, merge
+        # the new category stop in rather than replacing the whole route.
+        if (route_action.constraints or {}).get("append_to_existing") and existing_tasks:
+            task_dicts = _merge_continuation_tasks(existing_tasks, [new_task_dict])
+        else:
+            task_dicts = [new_task_dict]
+
+        # Classify only the new task so existing (already-processed) tasks do not
+        # re-trigger candidate selection for previously resolved stops.
+        new_task_obj = Task(**new_task_dict)
+        pre_decision = classify_tasks([new_task_obj], query)
+        print(
+            f"[demo] search_category: category={category!r} "
+            f"append={bool((route_action.constraints or {}).get('append_to_existing'))} "
+            f"pre_route_status={pre_decision.status!r}"
+        )
+
+        if pre_decision.status not in ("clarification_needed", "candidate_selection_needed"):
+            return PreRouteStageResult(
+                task_dicts=task_dicts,
+                route_action=route_action.model_dump(),
+            )
+
+        return PreRouteStageResult(
+            task_dicts=task_dicts,
+            should_return_early=True,
+            route_action=route_action.model_dump(),
+            response_payload=_build_blocking_response_payload(
+                task_dicts=task_dicts,
+                origin_text=origin_text,
+                pre_decision=pre_decision,
+                poi_tool=poi_tool,
+                raw_query=query,
+                route_action=route_action.model_dump(),
+            ),
+        )
 
     else:
         try:

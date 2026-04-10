@@ -104,7 +104,7 @@ def _derive_append_stop_query(
 # ── Action type constants ─────────────────────────────────────────────────────
 
 class ActionType:
-    """Tightly bounded set of route operations for Step B1.
+    """Tightly bounded set of route operations for Step B1/B2.
 
     Intentionally small.  Adding a new action type here requires a matching
     handler in pre_route_service.py and a verified test case.
@@ -114,6 +114,7 @@ class ActionType:
     REPLACE_STOP         = "replace_stop"          # swap an existing stop for another
     CLARIFY_MISSING_SLOT = "clarify_missing_slot"  # domain known; subtype slot not yet filled
     RESOLVE_CANDIDATE    = "resolve_candidate"     # in-progress POI selection — leaf state
+    SEARCH_POI_CATEGORY  = "search_poi_category"  # B2: normalised category want (pharmacy/haircut/gift…)
     UNKNOWN              = "unknown"               # cannot classify; fall through to parser
 
 
@@ -144,9 +145,157 @@ class RouteAction(BaseModel):
     domain: Optional[str] = None                  # "food" | "drink" | "clothes" | "shopping"
     missing_slot: Optional[str] = None            # always "type" in B1
 
+    # B2: normalised POI category for search_poi_category actions
+    # (e.g. "pharmacy", "hair salon", "gift shop")
+    category: Optional[str] = None
+
     # meta — downstream can use these as routing hints
     requires_candidate_selection: bool = False    # True when a branch/location must be picked
     requires_clarification: bool = False          # True when a narrowing question must be asked
+
+
+# ── B2: POI category normalisation ───────────────────────────────────────────
+#
+# Maps surface-form category keywords to canonical search strings.
+# Deliberately small and explicit: new categories require one new entry here,
+# not a new regex pattern.  Multi-word phrases are checked before single-word.
+#
+# Canonical values are recognised by pre_route_filter._VAGUE_TERMS (triggers
+# clarification) or fall through to candidate_selection_needed.
+
+_CATEGORY_VOCAB: dict[str, str] = {
+    # food & drink
+    "food": "restaurant",       "meal": "restaurant",
+    "restaurant": "restaurant", "diner": "restaurant",
+    "lunch": "restaurant",      "dinner": "restaurant",
+    "breakfast": "cafe",        "eat": "restaurant",
+    "coffee": "coffee shop",    "cafe": "coffee shop",
+    "cafeteria": "coffee shop", "bubble tea": "bubble tea shop",
+    "drink": "cafe",            "drinks": "cafe",
+    # health
+    "pharmacy": "pharmacy",     "chemist": "pharmacy",
+    "drugstore": "pharmacy",    "drug store": "pharmacy",
+    "medicine": "pharmacy",     "drugs": "pharmacy",
+    # personal care
+    "haircut": "hair salon",    "hairdresser": "hair salon",
+    "barber": "barber shop",    "hair": "hair salon",
+    "salon": "hair salon",      "nail": "nail salon",
+    "nails": "nail salon",
+    # shopping / gifts
+    "gift": "gift shop",        "gifts": "gift shop",
+    "present": "gift shop",     "presents": "gift shop",
+    "souvenir": "souvenir shop","souvenirs": "souvenir shop",
+    "clothes": "clothing store","clothing": "clothing store",
+    "shopping": "shopping centre",
+    "shopping centre": "shopping centre",
+    "shopping mall": "shopping mall",
+    "mall": "shopping mall",
+    # fuel / services
+    "petrol": "petrol station", "fuel": "petrol station",
+    "gas": "gas station",       "car wash": "car wash",
+    "parking": "car park",      "atm": "ATM",
+    "cash": "ATM",              "bank": "bank",
+    # grocery
+    "supermarket": "supermarket",
+    "grocery": "supermarket",   "groceries": "supermarket",
+    # hospitality
+    "hotel": "hotel",           "accommodation": "hotel",
+    # Chinese basics (BROAD_NEED covers most Chinese; these are extra safety)
+    "药店": "pharmacy",         "药房": "pharmacy",
+    "礼物": "gift shop",        "礼品": "gift shop",
+    "纪念品": "souvenir shop",  "理发": "hair salon",
+    "理发店": "hair salon",     "超市": "supermarket",
+}
+
+# Multi-word entries that must be matched before single-word fallback.
+_MULTI_WORD_CATEGORIES: list[str] = [
+    "bubble tea", "drug store", "car wash",
+    "hair salon", "gift shop",  "souvenir shop",
+    "coffee shop", "clothing store", "shopping centre", "shopping mall",
+]
+
+# Verb frame: "I want / I need / I'd like / I'm looking for ..."
+# Strips the leading intent verb so the remainder is the category noun.
+_WANT_FRAME_RE = re.compile(
+    r"^(?:(?:and|also|then)\s+)?"
+    r"(?:i\s+)?"
+    r"(?:"
+        r"want(?:\s+to\s+(?:buy|get|find|have))?"
+        r"|need(?:\s+to\s+(?:buy|get|find|have))?"
+        r"|'d\s+like"
+        r"|would\s+like"
+        r"|'m\s+looking\s+for"
+        r"|am\s+looking\s+for"
+    r")\s+"
+    r"(?:(?:a|an|some|to\s+(?:buy|get|find|have))\s+)?",
+    re.IGNORECASE,
+)
+
+# Verb frame: "find / get / show / recommend / go to / take me to ..."
+_FIND_FRAME_RE = re.compile(
+    r"^(?:(?:and|also|then)\s+)?"
+    r"(?:"
+        r"(?:find|get|show|recommend|suggest)(?:\s+me)?"
+        r"|(?:take|drive|navigate)\s+me\s+to"
+        r"|(?:go|head|drive|navigate)\s+to"
+        r"|stop\s+at"
+    r")\s+"
+    r"(?:a|an|the|some|me\s+)?",
+    re.IGNORECASE,
+)
+
+# Context pattern: "something for a friend/family" → gift shop
+_GIFT_CONTEXT_RE = re.compile(
+    r"\b(?:something|anything|a\s+gift|presents?|souvenirs?)\s+"
+    r"(?:for|to\s+give(?:\s+to)?)\s+"
+    r"(?:a\s+)?(?:friend|family|someone|my|the|him|her|them)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_poi_category(query: str) -> Optional[str]:
+    """Try to extract a normalised POI category from a natural language query.
+
+    Uses verb-frame stripping + vocabulary lookup rather than phrase-by-phrase
+    patterns.  This means "I need a pharmacy", "Find a pharmacy", "Get me to
+    a pharmacy" all converge to the same canonical category "pharmacy" without
+    requiring a separate pattern per verb.
+
+    Returns the canonical category string (e.g. "pharmacy", "hair salon"),
+    or None if no category can be determined.
+    """
+    # Fast-path: contextual gift phrases like "something for a friend"
+    if _GIFT_CONTEXT_RE.search(query):
+        return "gift shop"
+
+    # Strip leading verb frame to expose the category noun
+    text = query.strip()
+    for frame_re in (_WANT_FRAME_RE, _FIND_FRAME_RE):
+        stripped = frame_re.sub("", text, count=1)
+        if stripped != text:
+            text = stripped
+            break
+    text = text.strip(" ,.:!?")
+    lower = text.lower().rstrip(" .!?,")
+
+    if not lower:
+        return None
+
+    # Check multi-word entries first (longer match wins)
+    for phrase in _MULTI_WORD_CATEGORIES:
+        if lower == phrase or lower.startswith(phrase + " ") or lower.startswith(phrase + "."):
+            return _CATEGORY_VOCAB[phrase]
+
+    # Single first-word match (covers "haircut please", "pharmacy nearby", …)
+    first_word = lower.split()[0] if lower.split() else ""
+    if first_word in _CATEGORY_VOCAB:
+        return _CATEGORY_VOCAB[first_word]
+
+    # Exact match on full remainder
+    if lower in _CATEGORY_VOCAB:
+        return _CATEGORY_VOCAB[lower]
+
+    return None
 
 
 # ── Classifier ───────────────────────────────────────────────────────────────
@@ -249,6 +398,19 @@ def classify_route_action(
                 constraints={"along_route": True},
                 requires_candidate_selection=True,
             )
+        # B2: before assuming SET_DESTINATION, try to extract a category.
+        # "Find a pharmacy" should become search_poi_category, not set_destination.
+        # "Find McDonald's" → category extractor returns None → falls through to SET_DESTINATION.
+        category = _extract_poi_category(query)
+        if category:
+            return RouteAction(
+                action_type=ActionType.SEARCH_POI_CATEGORY,
+                category=category,
+                stop_query=category,
+                constraints={"append_to_existing": True} if has_existing_tasks else None,
+                requires_candidate_selection=semantic_intent.delegation,
+                requires_clarification=not semantic_intent.delegation,
+            )
         # Branded / non-unique destination ("Take me to McDonald's")
         return RouteAction(
             action_type=ActionType.SET_DESTINATION,
@@ -256,4 +418,17 @@ def classify_route_action(
         )
 
     # ── Fallback ──────────────────────────────────────────────────────────────
+    # B2: before giving up, try vocabulary-based category extraction.
+    # Catches UNKNOWN-mode queries like "I need a pharmacy", "I want a haircut",
+    # "Get me a souvenir" that have no routing verb but express a clear category want.
+    category = _extract_poi_category(query)
+    if category:
+        return RouteAction(
+            action_type=ActionType.SEARCH_POI_CATEGORY,
+            category=category,
+            stop_query=category,
+            constraints={"append_to_existing": True} if has_existing_tasks else None,
+            requires_candidate_selection=semantic_intent.delegation,
+            requires_clarification=not semantic_intent.delegation,
+        )
     return RouteAction(action_type=ActionType.UNKNOWN)
