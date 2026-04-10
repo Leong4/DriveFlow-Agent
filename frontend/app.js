@@ -1,5 +1,5 @@
 // DriveFlow Agent Frontend App
-console.log("APP_JS_VERSION_FIX_3");
+console.log("APP_JS_VERSION_STEP1");
 let map;
 let directionsService;
 let directionsRenderer;
@@ -8,6 +8,36 @@ let markers = [];
 // Stores the parsed_tasks from the most recent successful run.
 // Sent as existing_tasks when the next query looks like an itinerary edit.
 let latestParsedTasks = null;
+
+// Stores the last pre-route candidate state so selectCandidate() can reference it.
+// Shape: { parsedTasks, query, origin, battery, range } | null
+let latestCandidateContext = null;
+
+// Stores the pending_clarification context from the last clarification_needed response.
+// Forwarded as pending_clarification in the next request so the follow-up interpreter runs.
+let latestClarificationContext = null;
+
+/**
+ * Return true when the query looks like a continuation / append turn:
+ *   "and take me to ...", "then go to ...", "also stop at ...",
+ *   "再去 ...", "然后去 ...", "顺路 ..."
+ *
+ * These should be merged into the existing itinerary rather than parsed fresh.
+ * Only triggered when latestParsedTasks is non-null (prior context exists).
+ */
+function isContinuationQuery(query) {
+    const q = query.trim();
+    return (
+        /^and\s+(then\s+)?(take|go|drive|navigate|head|stop|find)/i.test(q) ||
+        /^then\s+(take|go|drive|navigate|head|stop|also|find)/i.test(q) ||
+        /^also\s+(take|go|drive|stop|find)/i.test(q) ||
+        /\b(?:on|along)\s+the\s+way\b/i.test(q) ||
+        /^路上/u.test(q) ||
+        /^再(?:去|到|找)/u.test(q) ||
+        /^然后(?:去|到)/u.test(q) ||
+        /^顺路/u.test(q)
+    );
+}
 
 /**
  * Return true when the query string matches one of the edit-intent patterns
@@ -23,6 +53,7 @@ function isEditQuery(query) {
         /\bremove\s+/.test(q)           ||  // "Remove B."
         /\bskip\s+/.test(q)             ||  // "Skip B."
         /\bcancel\s+/.test(q)           ||  // "Cancel B."
+        /\b(?:insert|add)\s+.+?\s+before\s+/.test(q) || // "Insert Boots before the airport."
         /在\s*.+?\s*前面\s*.*(?:去|到|加|插入)/.test(q) || // "在 B 前面先去 D"
         /先\s*(?:去|到).+?[，,]\s*再\s*(?:去|到)/.test(q) || // "先去 D，再去 B"
         /不\s*去\s*.+?\s*了/.test(q)    ||  // "不去 B 了" / "不去 B 了，换成 D"
@@ -107,12 +138,22 @@ async function runAgent() {
     if (batStr) payload.battery_level = parseInt(batStr);
     if (rngStr) payload.remaining_range_km = parseInt(rngStr);
 
-    // Patch B edit flow: if the user has an existing task chain and the query
-    // looks like an edit instruction, send the chain so the backend can apply
-    // itinerary_editor instead of re-parsing via the LLM.
+    // Edit flow: natural-language edit instructions (insert/replace/remove).
     if (latestParsedTasks && isEditQuery(query)) {
         payload.existing_tasks = latestParsedTasks;
         console.log("[Edit mode] Sending existing_tasks:", latestParsedTasks.length, "tasks");
+    }
+    // Continuation flow: "and then ...", "再去 ..." — append to existing itinerary.
+    else if (latestParsedTasks && isContinuationQuery(query)) {
+        payload.existing_tasks = latestParsedTasks;
+        payload.is_continuation = true;
+        console.log("[Continuation mode] Merging into existing_tasks:", latestParsedTasks.length, "tasks");
+    }
+
+    // Forward pending clarification context so the follow-up interpreter can run.
+    if (latestClarificationContext) {
+        payload.pending_clarification = latestClarificationContext;
+        console.log("[Clarification follow-up] Forwarding pending_clarification:", latestClarificationContext.domain);
     }
 
     setLoading(true);
@@ -133,10 +174,31 @@ async function runAgent() {
         }
         
         if (resp.ok) {
-            // Store the latest task chain so subsequent edit queries can reference it.
-            if (data.parsed_tasks) {
+            // Only update the task chain for fully resolved routes (not blocking states).
+            // Blocking states (clarification_needed / candidate_selection_needed) return
+            // only the tasks relevant to that sub-query, which would erase prior context
+            // (e.g. the destination anchor) that is still needed for re-entry.
+            if (data.parsed_tasks && (!data.pre_route_status || data.pre_route_status === 'ready_for_routing')) {
                 latestParsedTasks = data.parsed_tasks;
                 console.log("[Task chain updated] latestParsedTasks:", latestParsedTasks.length, "tasks");
+            }
+            // Save context for candidate selection so selectCandidate() can re-submit.
+            if (data.pre_route_candidates && data.pre_route_candidates.length > 0) {
+                latestCandidateContext = {
+                    parsedTasks: data.parsed_tasks,
+                    origin:      origin || 'University of Nottingham',
+                    battery:     batStr ? parseInt(batStr) : null,
+                    range:       rngStr ? parseInt(rngStr) : null,
+                };
+            } else {
+                latestCandidateContext = null;
+            }
+            // Store or clear the pending clarification context.
+            if (data.pending_clarification) {
+                latestClarificationContext = data.pending_clarification;
+                console.log("[Clarification] Stored pending_clarification, domain:", latestClarificationContext.domain);
+            } else {
+                latestClarificationContext = null;
             }
             updateUIState(data);
             updateMap(data.map_data);
@@ -177,7 +239,7 @@ function setLoading(isLoading) {
 
 function updateUIState(data) {
     document.getElementById('lblStatus').innerText = data.state.status || 'unknown';
-    
+
     const boxClarif = document.getElementById('boxClarification');
     const lblClarif = document.getElementById('lblClarification');
     if (data.clarification_text) {
@@ -196,10 +258,121 @@ function updateUIState(data) {
         boxGuard.classList.add('hidden');
     }
 
+    // ── Step 1: Candidate selection panel ────────────────────────────────────
+    if (data.pre_route_candidates && data.pre_route_candidates.length > 0) {
+        renderCandidates(data.pre_route_candidates, data.pre_route_status);
+    } else {
+        hideCandidates();
+    }
+
     document.getElementById('preParsed').innerText = JSON.stringify(data.parsed_tasks, null, 2);
     document.getElementById('preGraph').innerText = data.graph_text || '-';
     document.getElementById('preState').innerText = JSON.stringify(data.state, null, 2);
     document.getElementById('preTool').innerText = JSON.stringify(data.tool_result, null, 2);
+}
+
+// ── Candidate selection helpers ───────────────────────────────────────────────
+
+function renderCandidates(candidates, preRouteStatus) {
+    const box    = document.getElementById('boxCandidates');
+    const header = document.getElementById('lblCandidatesHeader');
+    const list   = document.getElementById('candidateList');
+
+    header.innerText = preRouteStatus === 'candidate_selection_needed'
+        ? 'Select a location:'
+        : 'Nearby options:';
+
+    list.innerHTML = '';
+    candidates.forEach((c) => {
+        const btn = document.createElement('button');
+        btn.className = 'candidate-btn';
+        btn.innerHTML =
+            `<span class="cand-name">${escapeHtml(c.name)}</span>` +
+            `<span class="cand-address">${escapeHtml(c.address || '')}</span>` +
+            `<span class="reason-tag">${escapeHtml(c.reason_tag || '')}</span>`;
+        btn.addEventListener('click', () => selectCandidate(c));
+        list.appendChild(btn);
+    });
+
+    box.classList.remove('hidden');
+}
+
+function hideCandidates() {
+    document.getElementById('boxCandidates').classList.add('hidden');
+    document.getElementById('candidateList').innerHTML = '';
+    latestCandidateContext = null;
+}
+
+/**
+ * Called when the user clicks a candidate button.
+ * Sends a candidate-resolution request to the backend: the backend replaces
+ * the matching vague/brand task with the selected POI and builds the route.
+ */
+async function selectCandidate(candidate) {
+    if (!latestCandidateContext) return;
+
+    const { parsedTasks, origin, battery, range } = latestCandidateContext;
+
+    // WS3: Restore destination anchor if the candidate context's task list does not
+    // include a destination (e.g. follow-up clarification flow only produced a stop).
+    // Pull the destination from the last known full route so it is not silently lost.
+    let taskList = parsedTasks;
+    const hasDestination = parsedTasks.some(t => t.type === 'destination');
+    if (!hasDestination && latestParsedTasks) {
+        const priorDest = latestParsedTasks.find(t => t.type === 'destination');
+        if (priorDest) {
+            taskList = [...parsedTasks, priorDest];
+            console.log("[Re-entry] Injecting prior destination anchor:", priorDest.name);
+        }
+    }
+
+    const payload = {
+        query:              document.getElementById('queryInput').value,
+        origin:             origin || 'University of Nottingham',
+        existing_tasks:     taskList,
+        selected_candidate: candidate,
+    };
+    if (battery) payload.battery_level = battery;
+    if (range)   payload.remaining_range_km = range;
+
+    setLoading(true);
+    try {
+        const resp = await fetch('/demo/run', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+        });
+        const contentType = resp.headers.get('content-type');
+        const data = contentType && contentType.includes('application/json')
+            ? await resp.json()
+            : { detail: await resp.text() };
+
+        if (resp.ok) {
+            if (data.parsed_tasks) latestParsedTasks = data.parsed_tasks;
+            latestClarificationContext = null; // candidate resolution ends any pending clarification
+            updateUIState(data);
+            updateMap(data.map_data);
+        } else {
+            const msg = data.detail
+                ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
+                : 'Request failed';
+            const errorBanner = document.getElementById('errorBanner');
+            errorBanner.innerText = 'Error: ' + msg;
+            errorBanner.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('selectCandidate fetch error:', err);
+    } finally {
+        setLoading(false);
+    }
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 // ── Map Updates ──

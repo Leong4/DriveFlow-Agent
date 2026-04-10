@@ -81,6 +81,48 @@ def select_best_stop(
     return best if best is not None else candidates[0]
 
 
+def filter_candidates_by_radius(
+    candidates: list,
+    origin_coords: Optional[tuple],
+    dest_coords: Optional[tuple] = None,
+    abs_max_km: float = 50.0,
+) -> list:
+    """Remove candidates that are unreasonably far from the route corridor.
+
+    Sanity-filters the candidate list before ranking so that distant results
+    (e.g. a Sheffield location in a Nottingham-only demo flow) do not pollute
+    the top of the list.
+
+    The threshold is:
+    - If both origin and destination are known: min(direct_dist * 3, abs_max_km)
+      (generous corridor that allows reasonable detours without leaving the region).
+    - If only origin is known: abs_max_km as a hard radius cap.
+
+    Falls back to the original list if filtering would eliminate all candidates.
+    """
+    if not candidates or origin_coords is None:
+        return candidates
+
+    o_lat, o_lng = origin_coords
+
+    if dest_coords is not None:
+        d_lat, d_lng = dest_coords
+        direct_dist = _haversine_km(o_lat, o_lng, d_lat, d_lng)
+        # At least 15 km so a very short route still has a reasonable window.
+        max_km = min(max(direct_dist * 3, 15.0), abs_max_km)
+    else:
+        max_km = abs_max_km
+
+    filtered = [
+        c for c in candidates
+        if c.get("lat") is not None
+        and c.get("lng") is not None
+        and _haversine_km(o_lat, o_lng, float(c["lat"]), float(c["lng"])) <= max_km
+    ]
+    # If the filter removes everything, fall back to the original list.
+    return filtered if filtered else candidates
+
+
 def rank_stops(
     origin_coords: Optional[tuple],
     dest_coords: Optional[tuple],

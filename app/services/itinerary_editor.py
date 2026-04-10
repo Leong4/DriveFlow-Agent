@@ -63,6 +63,16 @@ def parse_edit_intent(query: str) -> Tuple[str, Optional[str], Optional[str]]:
     """
     q = query.strip()
 
+    # ── insert_before: "insert/add NEW before ANCHOR" (new-before-anchor word order) ──
+    # e.g. "Insert Boots before the airport." or "Add a Starbucks before the castle."
+    m = re.search(
+        r"(?:insert|add)\s+(.+?)\s+before\s+(.+?)(?:[.,]|$)",
+        q, re.IGNORECASE,
+    )
+    if m:
+        # group(1) = new label, group(2) = anchor
+        return EditIntent.INSERT_BEFORE, _clean(m.group(2)), _clean(m.group(1))
+
     # ── insert_before: "before X, stop by / add / insert Y" ──
     m = re.search(
         r"before\s+(.+?)\s*,?\s*(?:stop\s+by|add|insert)\s+(.+?)(?:[.,]|$)",
@@ -192,6 +202,12 @@ def _canonical_label(label: str) -> str:
 
 def _label_variants(label: str) -> set[str]:
     variants = {label, _canonical_label(label)}
+    # Strip leading English articles so "the airport" also matches "East Midlands Airport".
+    # Without this, insert_before("the airport", ...) cannot find Airport in the task list.
+    stripped = re.sub(r'^(?:the|a|an)\s+', '', label, flags=re.IGNORECASE).strip()
+    if stripped and stripped.lower() != label.lower():
+        variants.add(stripped)
+        variants.add(_canonical_label(stripped))
     for zh_label, en_label in _DEMO_LABEL_ALIASES.items():
         if label.lower() == en_label.lower():
             variants.add(zh_label)
