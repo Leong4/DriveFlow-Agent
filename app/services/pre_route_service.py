@@ -25,6 +25,7 @@ from app.services.itinerary_editor import (
     EditIntent,
     apply_edit,
     insert_before as _insert_before,
+    parse_edit_intent,
     replace as _replace,
     remove as _remove,
 )
@@ -46,6 +47,8 @@ class PreRouteStageResult(BaseModel):
     response_payload: Optional[Dict[str, Any]] = None
     # Explicit action representation — included in all responses for inspectability.
     route_action: Optional[Dict[str, Any]] = None
+    # Edit turns update the itinerary but should not auto-start route execution.
+    suppress_execution: bool = False
 
 
 def empty_map_data(origin_text: str) -> Dict[str, Any]:
@@ -389,16 +392,19 @@ async def run_pre_route_stage(
 ) -> PreRouteStageResult:
     """Resolve Step 1 inputs and return either updated tasks or a blocking response."""
     poi_tool = poi_tool or PoiSearchTool()
+    parsed_edit_op, _, _ = parse_edit_intent(query)
+    is_edit_origin_query = parsed_edit_op != EditIntent.UNKNOWN
     semantic_intent = classify_semantic_intent(
         query,
         has_existing_tasks=existing_tasks is not None,
         has_selected_candidate=selected_candidate is not None,
     )
 
-    # ── B1: classify explicit route action ───────────────────────────────────
+    # ── B1/B2: classify explicit route action ────────────────────────────────
     # Translates the semantic intent into a named action that drives dispatch.
-    # Deterministic — no LLM calls.
-    route_action = classify_route_action(
+    # Category normalization may invoke the LLM (Phase 2); all other action
+    # classification remains deterministic.
+    route_action = await classify_route_action(
         semantic_intent,
         query,
         is_continuation=is_continuation,
@@ -548,6 +554,7 @@ async def run_pre_route_stage(
     print(f"[demo] mode={mode!r} | action={route_action.action_type!r} | query={query!r}")
 
     skip_pre_route_filter = False
+    suppress_execution = False
     task_dicts: List[Dict[str, Any]] = []
 
     if mode == "candidate_resolve":
@@ -557,6 +564,7 @@ async def run_pre_route_stage(
             raise HTTPException(status_code=500, detail=f"Candidate Resolution Error: {str(e)}")
         task_dicts = _normalize_destination_tasks(task_dicts)
         skip_pre_route_filter = True
+        suppress_execution = is_edit_origin_query
 
     elif mode == "edit":
         try:
@@ -590,6 +598,7 @@ async def run_pre_route_stage(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Edit Error: {str(e)}")
         task_dicts = _normalize_destination_tasks(task_dicts)
+        suppress_execution = True
 
     elif mode == "broad_need":
         task_dicts = [_make_semantic_stop_task(semantic_intent.category or "point of interest")]
@@ -653,6 +662,7 @@ async def run_pre_route_stage(
         return PreRouteStageResult(
             task_dicts=task_dicts,
             route_action=route_action.model_dump(),
+            suppress_execution=suppress_execution,
         )
 
     task_objs_for_filter = [Task(**t) for t in task_dicts]
@@ -684,6 +694,7 @@ async def run_pre_route_stage(
         return PreRouteStageResult(
             task_dicts=task_dicts,
             route_action=route_action.model_dump(),
+            suppress_execution=suppress_execution,
         )
 
     return PreRouteStageResult(

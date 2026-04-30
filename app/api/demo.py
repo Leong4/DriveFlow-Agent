@@ -172,6 +172,7 @@ async def run_demo(req: DemoRequest):
         current_state.remaining_task_ids
         and not current_state.clarification_needed
         and current_state.status != "failed"
+        and not pre_route_result.suppress_execution
     ):
         decision = planner.plan(graph_obj, current_state)
         planner_res_dict = decision.model_dump()

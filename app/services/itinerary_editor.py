@@ -52,6 +52,10 @@ def parse_edit_intent(query: str) -> Tuple[str, Optional[str], Optional[str]]:
             "把 X 换成 Y"
         remove:
             "don't go to X anymore"
+            "I'm not going to X anymore"
+            "I don't need X anymore"
+            "don't stop at X"
+            "drop X"
             "remove X"
             "skip X"
             "cancel X"
@@ -131,13 +135,41 @@ def parse_edit_intent(query: str) -> Tuple[str, Optional[str], Optional[str]]:
     if m:
         return EditIntent.REMOVE, _clean(m.group(1)), None
 
+    # ── remove: "I'm not going to X anymore" / "I'm no longer going to X" ──
+    m = re.search(
+        r"i(?:'m|\s+am)\s+(?:not|no\s+longer)\s+going\s+to\s+(.+?)(?:\s+anymore)?(?:[.,]|$)",
+        q,
+        re.IGNORECASE,
+    )
+    if m:
+        return EditIntent.REMOVE, _clean(m.group(1)), None
+
+    # ── remove: "I don't need X anymore" ──
+    m = re.search(
+        r"i\s+don'?t\s+need\s+(.+?)(?:\s+anymore)?(?:[.,]|$)",
+        q,
+        re.IGNORECASE,
+    )
+    if m:
+        return EditIntent.REMOVE, _clean(m.group(1)), None
+
+    # ── remove: "don't stop at X" ──
+    m = re.search(r"don'?t\s+stop\s+at\s+(.+?)(?:[.,]|$)", q, re.IGNORECASE)
+    if m:
+        return EditIntent.REMOVE, _clean(m.group(1)), None
+
     # ── remove: "不去 X 了" ──
     m = re.search(r"不\s*去\s*(.+?)\s*了(?:吧|[，。,.]|$)", q, re.IGNORECASE)
     if m:
         return EditIntent.REMOVE, _clean(m.group(1)), None
 
-    # ── remove: "remove / skip / cancel X" ──
-    m = re.search(r"(?:remove|skip|cancel)\s+(.+?)(?:[.,]|$)", q, re.IGNORECASE)
+    # ── remove: "remove / skip / cancel / drop X" ──
+    m = re.search(r"(?:remove|skip|cancel|drop)\s+(.+?)(?:[.,]|$)", q, re.IGNORECASE)
+    if m:
+        return EditIntent.REMOVE, _clean(m.group(1)), None
+
+    # ── remove: "we can drop X" ──
+    m = re.search(r"we\s+can\s+drop\s+(.+?)(?:[.,]|$)", q, re.IGNORECASE)
     if m:
         return EditIntent.REMOVE, _clean(m.group(1)), None
 

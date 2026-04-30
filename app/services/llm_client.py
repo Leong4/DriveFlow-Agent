@@ -14,12 +14,29 @@ class LLMClient:
                 "Ensure LLM_API_KEY, LLM_BASE_URL, and LLM_MODEL are set."
             )
 
-    async def chat(self, messages: list[dict[str, str]]) -> str:
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_format: dict | None = None,
+    ) -> str:
+        """Send a chat-completion request.
+
+        Args:
+            messages:        Conversation turns in OpenAI message format.
+            response_format: Optional OpenAI-compatible response_format dict,
+                             e.g. {"type": "json_object"}.  When provided it is
+                             forwarded verbatim to the provider — callers are
+                             responsible for choosing a value their provider
+                             supports.  Defaults to None (no constraint).
+        """
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,  # Keep it low for structured output
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
         
         try:
             async with httpx.AsyncClient(
