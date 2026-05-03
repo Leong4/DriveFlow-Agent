@@ -550,10 +550,11 @@ async def classify_route_action(
         )
 
     # ── Direct destination (unique named place) ───────────────────────────────
-    # Airport, castle, cathedral, etc. — high-confidence single-result venues.
-    # No candidate selection needed; parser determines the exact destination name.
+    # Airport, castle, cathedral, etc. — high-confidence named venues.
+    # Confirmation is still required before route commitment so the user can
+    # verify the system resolved the correct location.
     if mode == SemanticIntentMode.DIRECT_DESTINATION:
-        return RouteAction(action_type=ActionType.SET_DESTINATION)
+        return RouteAction(action_type=ActionType.SET_DESTINATION, requires_candidate_selection=True)
 
     # ── Specific search (branded / non-unique destination or stop) ────────────
     # The utterance has a routing verb but references a non-unique place.

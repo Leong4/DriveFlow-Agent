@@ -115,7 +115,33 @@ async def run_demo(req: DemoRequest):
             remaining_range_km=req.remaining_range_km,
         )
         task_objs = [Task(**t) for t in task_dicts]
-        augmented  = maybe_insert_charging_task(task_objs, ctx)
+
+        # Geocode origin and destination for haversine distance estimate.
+        # Falls back gracefully: if either lookup fails, maybe_insert_charging_task
+        # uses the keyword-based mock estimate instead.
+        _chg_orig_coords = None
+        _chg_dest_coords = None
+        _orig_res = poi_tool.run(ToolInput(
+            task_id="chg_orig", task_type="destination", payload={"name": origin_text}
+        ))
+        if _orig_res.data.get("candidates"):
+            _oc = _orig_res.data["candidates"][0]
+            _chg_orig_coords = (_oc["lat"], _oc["lng"])
+        for _td in task_dicts:
+            if _td.get("type") == "destination" and _td.get("name"):
+                _dest_res = poi_tool.run(ToolInput(
+                    task_id="chg_dest", task_type="destination", payload={"name": _td["name"]}
+                ))
+                if _dest_res.data.get("candidates"):
+                    _dc = _dest_res.data["candidates"][0]
+                    _chg_dest_coords = (_dc["lat"], _dc["lng"])
+                break
+
+        augmented  = maybe_insert_charging_task(
+            task_objs, ctx,
+            origin_coords=_chg_orig_coords,
+            dest_coords=_chg_dest_coords,
+        )
         task_dicts = [t.model_dump() for t in augmented]
 
     # ── 3.5. Route Optimization ───────────────────────────────────────────────
