@@ -1,0 +1,35 @@
+{
+  "variant": "final",
+  "base_url": "http://127.0.0.1:8000",
+  "case": {
+    "case_id": "TC01",
+    "family": "Simple destination",
+    "origin": null,
+    "battery_level": null,
+    "remaining_range_km": null,
+    "prompt": "Take me to East Midlands Airport.",
+    "prompt_turns": [
+      "Take me to East Midlands Airport."
+    ],
+    "existing_tasks": null,
+    "pending_clarification": null,
+    "selected_candidate": null,
+    "is_continuation": false,
+    "carry_existing_tasks": true
+  },
+  "timestamp": "2026-05-03T02:39:20Z",
+  "turns": [
+    {
+      "turn": 1,
+      "payload": {
+        "query": "Take me to East Midlands Airport."
+      },
+      "http_status": "",
+      "elapsed_ms": 0.0,
+      "response": {
+        "error": "[Errno 61] Connection refused"
+      },
+      "error": "[Errno 61] Connection refused"
+    }
+  ]
+}

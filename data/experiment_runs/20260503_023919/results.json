@@ -1,0 +1,21 @@
+[
+  {
+    "timestamp": "2026-05-03T02:39:20Z",
+    "variant": "final",
+    "case_id": "TC01",
+    "family": "Simple destination",
+    "prompt": "Take me to East Midlands Airport.",
+    "turn_count": 1,
+    "http_status": "",
+    "http_statuses": "",
+    "elapsed_ms": 0.0,
+    "actual_pre_route_status": "",
+    "actual_route_action": "",
+    "actual_itinerary": "[]",
+    "state_status": "",
+    "turns_to_routable": "",
+    "charging_inserted": false,
+    "raw_response_path": "data/experiment_runs/20260503_023919/raw/final__TC01.json",
+    "error": "[Errno 61] Connection refused"
+  }
+]

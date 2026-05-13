@@ -199,6 +199,16 @@ def _is_vague_stop(task: Task) -> bool:
     return any(t in _VAGUE_TERMS for t in (label, query, original) if t)
 
 
+def _has_resolved_location(task: Task) -> bool:
+    """True if a stop already carries selected-candidate coordinates."""
+    if task.type not in {"stop", "restaurant"}:
+        return False
+    p = task.payload or {}
+    lat = p.get("lat")
+    lng = p.get("lng")
+    return isinstance(lat, (int, float)) and isinstance(lng, (int, float))
+
+
 def _get_clarification_question(task: Task) -> str:
     """Return the single narrowing question for a vague stop task."""
     label, query, original = _stop_terms(task)
@@ -257,10 +267,11 @@ def classify_tasks(tasks: list, raw_query: str) -> PreRouteDecision:
     Classify parsed tasks and return the pre-route action.
 
     Decision hierarchy per stop task (in order):
-      1. Vague + no delegation  → clarification_needed (ask one question)
-      2. Vague + delegation     → candidate_selection_needed (recommend options)
-      3. Unique named place     → skip (continue to next task; treat as ready)
-      4. Brand / chain / specific category → candidate_selection_needed (user picks)
+      1. Already resolved       → skip (continue; user already picked this POI)
+      2. Vague + no delegation  → clarification_needed (ask one question)
+      3. Vague + delegation     → candidate_selection_needed (recommend options)
+      4. Unique named place     → skip (continue to next task; treat as ready)
+      5. Brand / chain / specific category → candidate_selection_needed (user picks)
 
     Destination and charging_station tasks are transparent to this filter.
     Only the first stop task that triggers action is acted upon; subsequent
@@ -277,6 +288,9 @@ def classify_tasks(tasks: list, raw_query: str) -> PreRouteDecision:
 
     for task in tasks:
         if task.type not in {"stop", "restaurant"}:
+            continue
+
+        if _has_resolved_location(task):
             continue
 
         if _is_vague_stop(task):

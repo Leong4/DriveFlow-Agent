@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "airport_single",
+    "family": "single_destination",
+    "origin": "University of Nottingham",
+    "prompt": "Take me to East Midlands Airport.",
+    "expected_behavior": "Direct destination route should become routable."
+  },
+  {
+    "case_id": "mcdonalds_ambiguous",
+    "family": "candidate_selection",
+    "origin": "University of Nottingham",
+    "prompt": "Take me to McDonald's.",
+    "expected_behavior": "Final version should request candidate selection instead of prematurely routing."
+  },
+  {
+    "case_id": "low_range_airport",
+    "family": "battery_range",
+    "origin": "University of Nottingham",
+    "battery_level": 15,
+    "remaining_range_km": 20,
+    "prompt": "Take me to East Midlands Airport.",
+    "expected_behavior": "Battery/range-aware flow may insert a charging stop when required."
+  },
+  {
+    "case_id": "simple_multiturn_edit",
+    "family": "sequential_turns",
+    "origin": "University of Nottingham",
+    "prompt_turns": [
+      "Take me to East Midlands Airport.",
+      {
+        "prompt": "Add a McDonald's stop on the way.",
+        "is_continuation": true
+      }
+    ],
+    "expected_behavior": "Second turn is sent with previous parsed_tasks as existing_tasks."
+  }
+]

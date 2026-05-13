@@ -1,0 +1,2 @@
+timestamp,variant,case_id,family,prompt,turn_count,http_status,http_statuses,elapsed_ms,actual_pre_route_status,actual_route_action,actual_itinerary,state_status,turns_to_routable,charging_inserted,raw_response_path,error
+2026-05-03T02:39:20Z,final,TC01,Simple destination,Take me to East Midlands Airport.,1,,,0.0,,,[],,,False,data/experiment_runs/20260503_023919/raw/final__TC01.json,[Errno 61] Connection refused

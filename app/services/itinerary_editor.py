@@ -52,6 +52,7 @@ def parse_edit_intent(query: str) -> Tuple[str, Optional[str], Optional[str]]:
             "把 X 换成 Y"
         remove:
             "don't go to X anymore"
+            "I won't be going to X"
             "I'm not going to X anymore"
             "I don't need X anymore"
             "don't stop at X"
@@ -132,6 +133,15 @@ def parse_edit_intent(query: str) -> Tuple[str, Optional[str], Optional[str]]:
 
     # ── remove: "don't go to X anymore" ──
     m = re.search(r"don'?t\s+go\s+to\s+(.+?)\s+anymore", q, re.IGNORECASE)
+    if m:
+        return EditIntent.REMOVE, _clean(m.group(1)), None
+
+    # ── remove: "I won't be going to X" ──
+    m = re.search(
+        r"i\s+won'?t\s+be\s+going\s+to\s+(.+?)(?:\s+anymore)?(?:[.,]|$)",
+        q,
+        re.IGNORECASE,
+    )
     if m:
         return EditIntent.REMOVE, _clean(m.group(1)), None
 

@@ -50,6 +50,7 @@ function isEditQuery(query) {
         /^before\s+/.test(q)           ||  // "Before B, stop by D."
         /replace\s+.+\s+with\s+/.test(q) || // "Replace B with D."
         /don'?t\s+go\s+to\s+/.test(q)  ||  // "Don't go to B, replace it with D." / "...anymore"
+        /i\s+won'?t\s+be\s+going\s+to\s+/.test(q) || // "I won't be going to B."
         /i(?:'m|\s+am)\s+(?:not|no\s+longer)\s+going\s+to\s+/.test(q) || // "I'm not going to B anymore."
         /i\s+don'?t\s+need\s+.+?(?:\s+anymore)?$/.test(q) || // "I don't need B anymore."
         /don'?t\s+stop\s+at\s+/.test(q) || // "Don't stop at B."
