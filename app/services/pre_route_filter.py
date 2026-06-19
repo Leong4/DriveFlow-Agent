@@ -141,7 +141,7 @@ _DEFAULT_CLARIFICATION = "Could you be more specific about what you're looking f
 
 # ── Domain classification for follow-up interpreter ───────────────────────────
 _DOMAIN_MAP: dict = {
-    "food": {"eat", "eating", "meal", "lunch", "dinner", "breakfast", "restaurant", "dining",
+    "food": {"food", "eat", "eating", "meal", "lunch", "dinner", "breakfast", "restaurant", "dining",
              "吃", "吃饭", "吃东西", "餐厅", "饭店"},
     "drink": {"drink", "drinks", "cafe", "cafeteria",
               "喝", "喝东西", "咖啡", "奶茶", "茶"},
