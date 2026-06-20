@@ -19,119 +19,51 @@ Env vars:
 import os
 from typing import Optional
 
-import httpx
 from dotenv import load_dotenv
 
 from app.tools.base_tool import BaseTool
+from app.tools.providers import (
+    GooglePlacesProvider,
+    GoogleRoutesProvider,
+    PlacesProvider,
+    RoutesProvider,
+)
 from app.tools.schemas import ToolInput, ToolResult
 
 load_dotenv()
 
-_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
-_PLACES_BASE = os.getenv("GOOGLE_PLACES_BASE_URL", "https://places.googleapis.com")
-_ROUTES_BASE = os.getenv("GOOGLE_ROUTES_BASE_URL", "https://routes.googleapis.com")
 _DEFAULT_ORIGIN = os.getenv("GOOGLE_ROUTE_ORIGIN_TEXT", "University of Nottingham")
 
 
 # ── Helper: geocode text → (lat, lng) via Places Text Search ──
 
-def _geocode_text(text: str) -> Optional[tuple[float, float]]:
+def _geocode_text(text: str, places_provider: PlacesProvider) -> Optional[tuple[float, float]]:
     """Resolve a place name to (lat, lng) using Places Text Search.
 
     Returns None on failure so the caller can emit a controlled ToolResult.
     """
-    url = f"{_PLACES_BASE}/v1/places:searchText"
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": _API_KEY,
-        "X-Goog-FieldMask": "places.location",
-    }
-    body = {"textQuery": text, "pageSize": 1}
-
-    try:
-        resp = httpx.post(url, headers=headers, json=body, timeout=10.0)
-        if resp.status_code != 200:
-            return None
-        places = resp.json().get("places", [])
-        if not places:
-            return None
-        loc = places[0].get("location", {})
-        lat = loc.get("latitude")
-        lng = loc.get("longitude")
-        if lat is None or lng is None:
-            return None
-        return (lat, lng)
-    except Exception:
+    candidates = places_provider.search_text(text, max_results=1)
+    if not candidates:
         return None
-
-
-# ── Helper: call Routes API computeRoutes ──
-
-def _compute_route(
-    origin: tuple[float, float],
-    destination: tuple[float, float],
-) -> Optional[dict]:
-    """Call Google Routes API and return {distance_km, eta_min, summary}.
-
-    Returns None on failure.
-    """
-    url = f"{_ROUTES_BASE}/directions/v2:computeRoutes"
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": _API_KEY,
-        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.description",
-    }
-    body = {
-        "origin": {
-            "location": {
-                "latLng": {"latitude": origin[0], "longitude": origin[1]},
-            },
-        },
-        "destination": {
-            "location": {
-                "latLng": {"latitude": destination[0], "longitude": destination[1]},
-            },
-        },
-        "travelMode": "DRIVE",
-    }
-
-    try:
-        resp = httpx.post(url, headers=headers, json=body, timeout=10.0)
-        if resp.status_code != 200:
-            return None
-        routes = resp.json().get("routes", [])
-        if not routes:
-            return None
-    except Exception:
+    candidate = candidates[0]
+    lat = candidate.get("lat")
+    lng = candidate.get("lng")
+    if lat is None or lng is None:
         return None
-
-    route = routes[0]
-
-    # Distance
-    distance_m = route.get("distanceMeters", 0)
-    distance_km = round(distance_m / 1000, 1)
-
-    # Duration — returned as e.g. "1234s"
-    duration_str = route.get("duration", "0s")
-    try:
-        duration_sec = int(duration_str.rstrip("s"))
-    except (ValueError, AttributeError):
-        duration_sec = 0
-    eta_min = round(duration_sec / 60)
-
-    # Description
-    description = route.get("description", "")
-    summary = f"Route via {description}" if description else "Route planned via the recommended path."
-
-    return {
-        "distance_km": distance_km,
-        "eta_min": eta_min,
-        "summary": summary,
-    }
+    return (lat, lng)
 
 
 class RoutePlanTool(BaseTool):
     """Route planning tool backed by Google Routes API."""
+
+    def __init__(
+        self,
+        *,
+        places_provider: Optional[PlacesProvider] = None,
+        routes_provider: Optional[RoutesProvider] = None,
+    ):
+        self.places_provider = places_provider or GooglePlacesProvider()
+        self.routes_provider = routes_provider or GoogleRoutesProvider()
 
     @property
     def name(self) -> str:
@@ -150,7 +82,7 @@ class RoutePlanTool(BaseTool):
 
         # ── Step 1: Geocode origin & destination ──
         origin_text = _DEFAULT_ORIGIN
-        origin_coords = _geocode_text(origin_text)
+        origin_coords = _geocode_text(origin_text, self.places_provider)
         if origin_coords is None:
             return ToolResult(
                 tool_name=self.name,
@@ -159,7 +91,7 @@ class RoutePlanTool(BaseTool):
                 message=f"Failed to geocode origin: '{origin_text}'",
             )
 
-        dest_coords = _geocode_text(destination_text)
+        dest_coords = _geocode_text(destination_text, self.places_provider)
         if dest_coords is None:
             return ToolResult(
                 tool_name=self.name,
@@ -169,7 +101,7 @@ class RoutePlanTool(BaseTool):
             )
 
         # ── Step 2: Compute route ──
-        result = _compute_route(origin_coords, dest_coords)
+        result = self.routes_provider.compute_route(origin_coords, dest_coords)
         if result is None:
             return ToolResult(
                 tool_name=self.name,
